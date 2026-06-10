@@ -11,7 +11,7 @@ notes = {}
 scaling = 0.708 # -3dBFS
 amplitude = 0.1 * scaling # adjusting by ear
 buffer_size = 48
-envelope_samples = sample_rate * 0.01 # 10ms - so this would be 480
+envelope_samples = int(sample_rate * 0.01) # 10ms - so this would be 480
 
 def make_times(start_time, sample_count):
     """Return a sequence of n time points for wave sampling."""
@@ -23,6 +23,10 @@ def make_times(start_time, sample_count):
         dtype = np.float32,
     )
     return times
+
+# create 0->1 and 1->0 arrays for linear scaling
+ramp_up = make_times(0, envelope_samples) / envelope_samples
+ramp_down = np.append(np.flip(ramp_up, axis = 0), np.zeros(buffer_size), axis = 0)
 
 class Sawtooth(object):
     # https://en.wikipedia.org/wiki/Sawtooth_wave
@@ -46,6 +50,7 @@ class Note(object):
         self.key = key
         self.freq = 440 * 2**((key - 69)/12)
         self.generator = Sawtooth(self.freq)
+        self.death_time = 0
 
     def samples(self, sample_count):
         """
@@ -55,15 +60,29 @@ class Note(object):
         """
         self.current_time += sample_count
         generated_samples = self.generator.samples(self.current_time, sample_count)
+
         if self.current_time < envelope_samples:
-            return generated_samples * make_times(self.current_time, sample_count) / envelope_samples
+            # fade in
+            return generated_samples * ramp_up[self.current_time:self.current_time+sample_count]
+        elif self.death_time > 0:
+            # fade out or zero
+            elapsed_time = self.current_time - self.death_time
+            if elapsed_time >= envelope_samples:
+                global notes
+                del notes[self.key]
+                return np.zeros(int(sample_count), dtype=np.float32)
+            return generated_samples * ramp_down[elapsed_time:elapsed_time+sample_count]
         return generated_samples
+
+    def die(self):
+        self.death_time = self.current_time
 
 def sounddevice_callback(out_data, frame_count, time_info, status):
     """Get me the next x frames of sound data"""
     output = np.zeros(frame_count, dtype=np.float32)
     for key in notes:
         output = notes[key].samples(frame_count)
+        break
 
     global sample_clock
     sample_clock += frame_count
@@ -92,7 +111,9 @@ def handle_midi_input(message):
     if message.type == "note_on" and message.velocity > 0:
         notes = {message.note: Note(message.note)}
     elif message.type == "note_on" or message.type == "note_off":
-        del(notes[message.note])
+        note = notes[message.note]
+        if note != None:
+            note.die()
 
 def play_some_midi(midi_device, midi_file = None, random_notes = False):
     """
@@ -105,12 +126,13 @@ def play_some_midi(midi_device, midi_file = None, random_notes = False):
         for msg in mido.MidiFile(midi_file).play():
             midi_output_port.send(msg)
     elif random_notes:
-        for i in range(10):
+        for i in range(100):
             msg = Message('note_on', note=random.randrange(30,80))
             midi_output_port.send(msg)
             time.sleep(0.1)
             midi_output_port.send(Message('note_off', note=msg.note))
     midi_output_port.close()
+    time.sleep(0.1)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -146,9 +168,10 @@ if __name__ == "__main__":
             with mido.open_input(midi_device, callback=handle_midi_input) as midi_input_port:
                 if args.play_file is not None or args.random:
                     play_some_midi(midi_device, random_notes=args.random, midi_file=args.play_file)
-                else:
-                    input("Waiting for MIDI input, press enter to quit")
+                input("Listening for MIDI input, or press enter to quit")
             audio_output_stream.stop()
 
     except OSError as e:
         print(f"Failed to start: {e}")
+    except KeyboardInterrupt:
+        print("\nGoodbye!")
