@@ -12,6 +12,8 @@ Caveats
 2. All sounds are squaretooth waves
 3. All notes are the same volume
 
+See SYNTH.mp4 for a quick example.  It is truly a tragedy (for all of us) that we were limited to 5 seconds by the requirements.
+
 ### Development
 This is two parts
 1. A controller that generates notes
