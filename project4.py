@@ -8,7 +8,10 @@ from mido import Message
 sample_clock = 0
 sample_rate = 48000
 notes = {}
-amplitude = 0.0708 # -3dBFS
+scaling = 0.708 # -3dBFS
+amplitude = 0.1 * scaling # adjusting by ear
+buffer_size = 48
+envelope_samples = sample_rate * 0.01 # 10ms - so this would be 480
 
 def make_times(start_time, sample_count):
     """Return a sequence of n time points for wave sampling."""
@@ -51,7 +54,10 @@ class Note(object):
         :return: the samples
         """
         self.current_time += sample_count
-        return self.generator.samples(self.current_time, sample_count)
+        generated_samples = self.generator.samples(self.current_time, sample_count)
+        if self.current_time < envelope_samples:
+            return generated_samples * make_times(self.current_time, sample_count) / envelope_samples
+        return generated_samples
 
 def sounddevice_callback(out_data, frame_count, time_info, status):
     """Get me the next x frames of sound data"""
@@ -76,9 +82,9 @@ def query_devices(all_output = True):
 
     if all_output:
         print(sounddevice.query_devices())
-        print(f'Midi inputs are: {mido.get_input_names()}')
+        print(f'Midi outputs are: {mido.get_output_names()}')
 
-    print(f'Midi outputs are: {mido.get_output_names()}')
+    print(f'Midi inputs are: {mido.get_input_names()}')
 
 def handle_midi_input(message):
     print(message)
@@ -96,13 +102,11 @@ def play_some_midi(midi_device, midi_file = None, random_notes = False):
     """
     midi_output_port = mido.open_output(midi_device)
     if midi_file is not None:
-        mid = mido.MidiFile(midi_file)
-        for msg in mid.play():
+        for msg in mido.MidiFile(midi_file).play():
             midi_output_port.send(msg)
     elif random_notes:
         for i in range(10):
             msg = Message('note_on', note=random.randrange(30,80))
-            print(msg)
             midi_output_port.send(msg)
             time.sleep(0.1)
             midi_output_port.send(Message('note_off', note=msg.note))
@@ -113,7 +117,6 @@ if __name__ == "__main__":
     parser.add_argument("--show-devices", help="show audio devices", default=False, action="store_true")
     parser.add_argument("--play-file", help="play a midi file", type=str, required=False)
     parser.add_argument("--random", help="play random midi for a few seconds", default=False, action="store_true")
-    parser.add_argument("--buffer-size", help="buffer size", type=int, default=48, required=False)
     parser.add_argument("--device", help="midi device name", type=str, required=False)
     args = parser.parse_args()
 
@@ -121,17 +124,21 @@ if __name__ == "__main__":
         query_devices()
         exit(0)
     if args.device is None:
-        print("Please specify a midi device")
+        print("Please specify a midi input device")
         query_devices(all_output=False)
+        print("\nIf you are on a mac and do not see a value, try:")
+        print("1. Open 'Audio MIDI Setup'")
+        print("2. Go to Window | Show MIDI Studio")
+        print("3. Click 'IAC Driver'")
+        print("4. Ensure 'Device is online' is checked")
         exit(0)
     midi_device = args.device
 
     try:
-        # sound output
         with sounddevice.OutputStream(
             samplerate=sample_rate,
             channels=1,
-            blocksize=args.buffer_size,
+            blocksize=buffer_size,
             callback=sounddevice_callback,
         ) as audio_output_stream:
             audio_output_stream.start()
