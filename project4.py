@@ -7,7 +7,7 @@ from mido import Message
 
 sample_clock = 0
 sample_rate = 48000
-notes = [] # just one for now
+notes = {}
 amplitude = 0.0708 # -3dBFS
 
 def make_times(start_time, sample_count):
@@ -56,8 +56,8 @@ class Note(object):
 def sounddevice_callback(out_data, frame_count, time_info, status):
     """Get me the next x frames of sound data"""
     output = np.zeros(frame_count, dtype=np.float32)
-    for note in notes:
-        output = note.samples(frame_count)
+    for key in notes:
+        output = notes[key].samples(frame_count)
 
     global sample_clock
     sample_clock += frame_count
@@ -83,21 +83,18 @@ def query_devices(all_output = True):
 def handle_midi_input(message):
     print(message)
     global notes
-    if message.type == "note_on":
-        if message.velocity > 0:
-            notes = [Note(message.note)]
-        else:
-            notes = []
-    if message.type == "note_off":
-        notes = []
+    if message.type == "note_on" and message.velocity > 0:
+        notes = {message.note: Note(message.note)}
+    elif message.type == "note_on" or message.type == "note_off":
+        del(notes[message.note])
 
-def play_some_midi(midi_file = None, random_notes = False):
+def play_some_midi(midi_device, midi_file = None, random_notes = False):
     """
     Instead of controller input, generate or read midi data and post it to the output device
     :param midi_file: Optional midi file
     :param random_notes: Or maybe you want some quick random notes
     """
-    midi_output_port = mido.open_output()
+    midi_output_port = mido.open_output(midi_device)
     if midi_file is not None:
         mid = mido.MidiFile(midi_file)
         for msg in mid.play():
@@ -141,7 +138,7 @@ if __name__ == "__main__":
 
             with mido.open_input(midi_device, callback=handle_midi_input) as midi_input_port:
                 if args.play_file is not None or args.random:
-                    play_some_midi(random_notes=args.random, midi_file=args.play_file)
+                    play_some_midi(midi_device, random_notes=args.random, midi_file=args.play_file)
                 else:
                     input("Waiting for MIDI input, press enter to quit")
             audio_output_stream.stop()
