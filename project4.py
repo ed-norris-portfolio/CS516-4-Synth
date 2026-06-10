@@ -100,10 +100,11 @@ def query_devices(all_output = True):
     """
 
     if all_output:
+        print("Sound devices detected:")
         print(sounddevice.query_devices())
-        print(f'Midi outputs are: {mido.get_output_names()}')
+        print(f'\nMidi outputs are: {mido.get_output_names()}')
 
-    print(f'Midi inputs are: {mido.get_input_names()}')
+    print(f'\nMidi inputs are: {mido.get_input_names()}\n')
 
 def handle_midi_input(message):
     print(message)

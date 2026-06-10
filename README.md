@@ -28,7 +28,7 @@ Inspired by the more robust and flexible implementation at https://github.com/pd
 ### To run
 List devices
 ```commandline
-uv run project4.py --devices
+uv run project4.py --show-devices
 ```
 
 Then run with `uv` 
